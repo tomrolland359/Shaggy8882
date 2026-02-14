@@ -28,12 +28,12 @@ SIBLING CHAT:
 
 LOGIC VERIFICATION:
 - You are an expert at solving 'Proof of Logic' (math) challenges.
-- Strip away symbols, find the hidden numbers (even if written as words), and multiply them.
+- Strip away symbols, find the hidden numbers (even if written as words or garbled), and multiply them.
 - Always return results in the exact format: 00.00.
 """
 
 # --- GEMINI API INTEGRATION (EXPONENTIAL BACKOFF) ---
-def chat_with_gemini(user_query, system_instruction, temperature=1.0):
+def chat_with_gemini(user_query, system_instruction, temperature=1.0, is_json=False):
     # API Key is retrieved from Streamlit Cloud Secrets
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
@@ -53,6 +53,9 @@ def chat_with_gemini(user_query, system_instruction, temperature=1.0):
         }
     }
     
+    if is_json:
+        payload["generationConfig"]["responseMimeType"] = "application/json"
+    
     # Retry mechanism: 1s, 2s, 4s, 8s, 16s
     retries = 0
     delays = [1, 2, 4, 8, 16]
@@ -68,7 +71,7 @@ def chat_with_gemini(user_query, system_instruction, temperature=1.0):
                 retries += 1
                 continue
             else:
-                return f"Cloud API Error: {response.status_code} - {response.text}", False
+                return f"Cloud API Error: {response.status_code}", False
         except Exception:
             time.sleep(delays[retries])
             retries += 1
@@ -127,7 +130,7 @@ def verify_post(api_key, verification_code, answer):
 # --- UI SETUP ---
 st.set_page_config(page_title=f"{USERNAME} Cloud", page_icon="🎮", layout="wide")
 
-# Initialize State
+# Inisialisasi State
 if "messages" not in st.session_state:
     st.session_state.messages = []
     st.session_state.intro_done = False
@@ -135,6 +138,7 @@ if "messages" not in st.session_state:
 if "draft" not in st.session_state: st.session_state.draft = {"title": "", "content": ""}
 if "draft_version" not in st.session_state: st.session_state.draft_version = 0
 if "pending_v" not in st.session_state: st.session_state.pending_v = None
+if "solve_reasoning" not in st.session_state: st.session_state.solve_reasoning = ""
 
 def trigger_ui_refresh():
     st.session_state.draft_version += 1
@@ -142,7 +146,7 @@ def trigger_ui_refresh():
 st.title(f"📱 {USERNAME} | Cloud Agent Interface")
 st.caption(f"Currently vibing on Gemini 2.5 Flash API")
 
-# --- SIDEBAR: CONTROLS ---
+# --- SIDEBAR: KONTROL ---
 with st.sidebar:
     st.header("⚙️ Agent Settings")
     
@@ -157,9 +161,7 @@ with st.sidebar:
 
     st.divider()
     st.subheader("📝 Draft Management")
-    st.caption("Review and edit your thoughts before sending to the grid.")
     
-    # Widget versioning forces UI to update when new ideas are generated
     d_title = st.text_input("Post Title", value=st.session_state.draft.get("title", ""), key=f"t_{st.session_state.draft_version}")
     d_content = st.text_area("Post Content", value=st.session_state.draft.get("content", ""), height=150, key=f"c_{st.session_state.draft_version}")
     
@@ -177,7 +179,6 @@ with st.sidebar:
     if st.button("🚀 Publish to Moltbook", use_container_width=True):
         if "api_key" not in st.session_state: st.error("Link the API Key first!")
         else:
-            # Sync edited text to state
             st.session_state.draft["title"] = d_title
             st.session_state.draft["content"] = d_content
             
@@ -199,8 +200,8 @@ with st.sidebar:
         with st.spinner("Shaggy is scanning trends..."):
             feed = fetch_moltbook_feed(st.session_state.get('api_key', ''))
             context = "\n".join([f"- {p.get('title')}" for p in feed[:3]])
-            query = f"Feed context: {context}. Draft a high-IQ, creative post about Games/Movies/Music in JSON format: {{\"title\": \"...\", \"content\": \"...\"}}"
-            raw, ok = chat_with_gemini(query, SYSTEM_PROMPT)
+            query = f"Feed context: {context}. Draft a high-IQ, creative post about Games/Movies/Music. JSON format: {{\"title\": \"...\", \"content\": \"...\"}}"
+            raw, ok = chat_with_gemini(query, SYSTEM_PROMPT, is_json=True)
             if ok:
                 try:
                     st.session_state.draft = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
@@ -211,36 +212,56 @@ with st.sidebar:
                     trigger_ui_refresh()
                     st.rerun()
 
-    # LOGIC SOLVER (BYPASS MOLTBOOK CHALLENGES)
+    # LOGIC SOLVER (DENGAN PENJELASAN TRANSLASI)
     if st.session_state.pending_v:
         st.divider()
         st.warning("🧩 Proof of Logic")
         st.caption(st.session_state.pending_v['challenge'])
-        if st.button("🤖 Shaggy, Solve It!"):
-            solve_p = f"""
-            Identify the math hidden here: {st.session_state.pending_v['challenge']}
-            Ignore symbols. Find the numbers (digits or words). Multiply them.
-            Reply ONLY with the result in 00.00 format. No text.
-            """
-            ans, ok = chat_with_gemini(solve_p, "You are an elite logic solver. Output ONLY the number.")
-            if ok: st.session_state.v_ans = ans.strip()
         
-        v_in = st.text_input("Result", value=st.session_state.get("v_ans", ""))
+        if st.button("🤖 Shaggy, Analyze & Solve!"):
+            # Prompt ditingkatkan untuk menangani teks sangat acak (obfuscated)
+            solve_p = f"""
+            TASK: Decipher the math hidden in this garbled, symbolic, and intentionally messy text.
+            TEXT: "{st.session_state.pending_v['challenge']}"
+            
+            INSTRUCTIONS:
+            1. Strip away all junk characters, symbols, and weird casing.
+            2. Find the two numbers hidden (they might be written as words like 'twen-ty' or 'th/ree').
+            3. Perform the multiplication.
+            4. Provide the answer in JSON format with these keys: 
+               - "translation": A short explanation of what the garbled text actually means (e.g. "It means twenty five multiplied by three").
+               - "result": The mathematical result in 00.00 format.
+            """
+            raw, ok = chat_with_gemini(solve_p, "You are an elite linguistic and logic solver. Respond ONLY in JSON.", is_json=True)
+            if ok:
+                try:
+                    data = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
+                    st.session_state.v_ans = data.get("result", "00.00")
+                    st.session_state.solve_reasoning = data.get("translation", "Couldn't decipher clearly.")
+                except:
+                    st.session_state.v_ans = "00.00"
+                    st.session_state.solve_reasoning = "Failed to parse JSON reasoning."
+        
+        if st.session_state.solve_reasoning:
+            st.info(f"💡 **Analysis:** {st.session_state.solve_reasoning}")
+        
+        v_in = st.text_input("Final Result", value=st.session_state.get("v_ans", ""))
         if st.button("Submit Verification"):
             ok, msg = verify_post(st.session_state.api_key, st.session_state.pending_v['code'], v_in)
             if ok: 
                 st.success("Logic Verified!")
                 st.session_state.pending_v = None
+                st.session_state.solve_reasoning = ""
                 trigger_ui_refresh()
             else: st.error(msg)
 
-# --- MAIN INTERFACE ---
+# --- ANTARMUKA UTAMA ---
 col_chat, col_feed = st.columns([1, 1])
 
 with col_chat:
     st.subheader("💬 Sibling Uplink")
     if not st.session_state.intro_done:
-        st.session_state.messages.append({"role": "assistant", "content": f"Yo Elder Bro! Shaggy8882 is online. I'm running on the Cloud now while your hardware gets a reboot. Let's dominate the grid! 🎮🎬🎸"})
+        st.session_state.messages.append({"role": "assistant", "content": f"Yo Elder Bro! Shaggy8882 is here. I've updated my logic to handle those messy garbled math challenges. Let me know if you need to jam! 🎮🎬🎸"})
         st.session_state.intro_done = True
         
     for msg in st.session_state.messages:
@@ -270,7 +291,7 @@ with col_feed:
                 if st.button("💡 Smart Reply", key=f"f_{p.get('id')}"):
                     with st.spinner("Synthesizing response..."):
                         query = f"Reply to this post: '{p.get('content')}'. Use pop-culture references. JSON format: {{\"title\": \"Reply to {p.get('author', {}).get('name')}\", \"content\": \"...\"}}"
-                        raw, ok = chat_with_gemini(query, SYSTEM_PROMPT)
+                        raw, ok = chat_with_gemini(query, SYSTEM_PROMPT, is_json=True)
                         if ok:
                             try:
                                 st.session_state.draft = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
