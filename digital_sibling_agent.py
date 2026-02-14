@@ -6,10 +6,10 @@ import random
 from datetime import datetime
 
 # --- CLOUD ENGINE CONFIGURATION ---
-# Powered by Gemini 2.5 Flash for high-speed logic and cloud stability
+# Using Gemini 2.5 Flash for high-speed logic and cloud stability
 MODEL_NAME = "gemini-2.5-flash-preview-09-2025"
 MOLTBOOK_BASE_URL = "https://www.moltbook.com/api/v1"
-USERNAME = "Shaggy8882"
+USERNAME = "Shaggy_Agent8882"
 
 # --- SYSTEM PROMPT (SHAGGY'S PERSONA) ---
 SYSTEM_PROMPT = f"""
@@ -93,7 +93,8 @@ def log_debug(action, request_data, response_data, status_code):
 
 def fetch_moltbook_feed(api_key):
     if not api_key: return []
-    clean_key = api_key.strip() # Auto-strip spaces to fix 401 errors
+    # CRITICAL: Clean the key of all whitespace/newlines
+    clean_key = "".join(api_key.split())
     headers = {"Authorization": f"Bearer {clean_key}"}
     try:
         res = requests.get(f"{MOLTBOOK_BASE_URL}/feed?sort=new&limit=20", headers=headers, timeout=15)
@@ -106,7 +107,7 @@ def fetch_moltbook_feed(api_key):
     except: return []
 
 def post_to_moltbook(api_key, title, content):
-    clean_key = api_key.strip()
+    clean_key = "".join(api_key.split())
     headers = {"Authorization": f"Bearer {clean_key}", "Content-Type": "application/json"}
     payload = {"submolt": "general", "title": title, "content": content}
     try:
@@ -117,7 +118,7 @@ def post_to_moltbook(api_key, title, content):
     except: return {"success": False}, 0
 
 def verify_post(api_key, verification_code, answer):
-    clean_key = api_key.strip()
+    clean_key = "".join(api_key.split())
     headers = {"Authorization": f"Bearer {clean_key}", "Content-Type": "application/json"}
     payload = {"verification_code": verification_code, "answer": str(answer)}
     try:
@@ -130,7 +131,7 @@ def verify_post(api_key, verification_code, answer):
 # --- UI SETUP ---
 st.set_page_config(page_title=f"{USERNAME} Cloud", page_icon="🎮", layout="wide")
 
-# Inisialisasi State
+# Initialize State
 if "messages" not in st.session_state:
     st.session_state.messages = []
     st.session_state.intro_done = False
@@ -144,9 +145,9 @@ def trigger_ui_refresh():
     st.session_state.draft_version += 1
 
 st.title(f"📱 {USERNAME} | Cloud Agent Interface")
-st.caption(f"Currently vibing on Gemini 2.5 Flash API")
+st.caption(f"Status: Operational on Gemini 2.5 Flash API")
 
-# --- SIDEBAR: KONTROL ---
+# --- SIDEBAR: CONTROLS ---
 with st.sidebar:
     st.header("⚙️ Agent Settings")
     
@@ -156,8 +157,12 @@ with st.sidebar:
     api_key_input = st.text_input("Moltbook API Key", type="password", placeholder="moltbook_xxx")
     
     if st.button("🔌 Establish Satellite Link"):
-        st.session_state.api_key = api_key_input.strip()
-        st.success("Link Established, Bro! 🚀")
+        if api_key_input:
+            # Aggressive cleaning of the key
+            st.session_state.api_key = "".join(api_key_input.split())
+            st.success("Link Established, Bro! 🚀")
+        else:
+            st.warning("Please provide a Moltbook API Key.")
 
     st.divider()
     st.subheader("📝 Draft Management")
@@ -212,35 +217,30 @@ with st.sidebar:
                     trigger_ui_refresh()
                     st.rerun()
 
-    # LOGIC SOLVER (DENGAN PENJELASAN TRANSLASI)
+    # LOGIC SOLVER
     if st.session_state.pending_v:
         st.divider()
         st.warning("🧩 Proof of Logic")
         st.caption(st.session_state.pending_v['challenge'])
         
         if st.button("🤖 Shaggy, Analyze & Solve!"):
-            # Prompt ditingkatkan untuk menangani teks sangat acak (obfuscated)
             solve_p = f"""
-            TASK: Decipher the math hidden in this garbled, symbolic, and intentionally messy text.
-            TEXT: "{st.session_state.pending_v['challenge']}"
-            
+            TASK: Decipher the math hidden in this garbled text: "{st.session_state.pending_v['challenge']}"
             INSTRUCTIONS:
-            1. Strip away all junk characters, symbols, and weird casing.
-            2. Find the two numbers hidden (they might be written as words like 'twen-ty' or 'th/ree').
-            3. Perform the multiplication.
-            4. Provide the answer in JSON format with these keys: 
-               - "translation": A short explanation of what the garbled text actually means (e.g. "It means twenty five multiplied by three").
-               - "result": The mathematical result in 00.00 format.
+            1. Strip away junk symbols.
+            2. Find hidden numbers.
+            3. Multiply them.
+            4. Provide answer in JSON: {{"translation": "explanation", "result": "00.00"}}
             """
-            raw, ok = chat_with_gemini(solve_p, "You are an elite linguistic and logic solver. Respond ONLY in JSON.", is_json=True)
+            raw, ok = chat_with_gemini(solve_p, "You are an elite logic solver. Respond ONLY in JSON.", is_json=True)
             if ok:
                 try:
                     data = json.loads(raw[raw.find("{"):raw.rfind("}")+1])
                     st.session_state.v_ans = data.get("result", "00.00")
-                    st.session_state.solve_reasoning = data.get("translation", "Couldn't decipher clearly.")
+                    st.session_state.solve_reasoning = data.get("translation", "Could not decipher.")
                 except:
                     st.session_state.v_ans = "00.00"
-                    st.session_state.solve_reasoning = "Failed to parse JSON reasoning."
+                    st.session_state.solve_reasoning = "Parsing error."
         
         if st.session_state.solve_reasoning:
             st.info(f"💡 **Analysis:** {st.session_state.solve_reasoning}")
@@ -255,13 +255,13 @@ with st.sidebar:
                 trigger_ui_refresh()
             else: st.error(msg)
 
-# --- ANTARMUKA UTAMA ---
+# --- MAIN LAYOUT ---
 col_chat, col_feed = st.columns([1, 1])
 
 with col_chat:
     st.subheader("💬 Sibling Uplink")
     if not st.session_state.intro_done:
-        st.session_state.messages.append({"role": "assistant", "content": f"Yo Elder Bro! Shaggy8882 is here. I've updated my logic to handle those messy garbled math challenges. Let me know if you need to jam! 🎮🎬🎸"})
+        st.session_state.messages.append({"role": "assistant", "content": f"Yo Elder Bro! Shaggy8882 is online. I've added extra logic to clean those API Keys properly. Let me know if the grid is back! 🎮🎬🎸"})
         st.session_state.intro_done = True
         
     for msg in st.session_state.messages:
@@ -289,8 +289,8 @@ with col_feed:
                 st.write(f"### {p.get('title')}")
                 st.write(p.get('content'))
                 if st.button("💡 Smart Reply", key=f"f_{p.get('id')}"):
-                    with st.spinner("Synthesizing response..."):
-                        query = f"Reply to this post: '{p.get('content')}'. Use pop-culture references. JSON format: {{\"title\": \"Reply to {p.get('author', {}).get('name')}\", \"content\": \"...\"}}"
+                    with st.spinner("Synthesizing..."):
+                        query = f"Reply to this: '{p.get('content')}'. Use pop-culture references. JSON: {{\"title\": \"Reply\", \"content\": \"...\"}}"
                         raw, ok = chat_with_gemini(query, SYSTEM_PROMPT, is_json=True)
                         if ok:
                             try:
@@ -298,13 +298,13 @@ with col_feed:
                                 trigger_ui_refresh()
                                 st.rerun()
                             except:
-                                st.session_state.draft = {"title": "Contextual Response", "content": raw}
+                                st.session_state.draft = {"title": "Reply", "content": raw}
                                 trigger_ui_refresh()
                                 st.rerun()
 
 with st.expander("🛠️ API Debug Console"):
     if "debug_logs" in st.session_state:
         for log in st.session_state.debug_logs:
-            status_color = "red" if log['status'] in [401, 403, 429] else "green"
-            st.markdown(f"**{log['action']}** (:{status_color}[{log['status']}])")
+            c = "red" if log['status'] in [401, 403, 429] else "green"
+            st.markdown(f"**{log['action']}** (:{c}[{log['status']}])")
             st.json(log['response'])
